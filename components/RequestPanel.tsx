@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Trash2, Lock, FileText, Upload, AlertCircle } from 'lucide-react';
+import { Play, Trash2, Lock, FileText, Upload, AlertCircle, Braces } from 'lucide-react';
 import { RequestState, HttpMethod, KeyValue, FormDataItem } from '../types';
 import { HTTP_METHODS } from '../constants';
 
@@ -51,6 +51,18 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onChange, o
         updateField('file', e.target.files[0]);
     } else {
         updateField('file', null);
+    }
+  };
+
+  const formatJSON = () => {
+    if (!request.bodyContent) return;
+    try {
+        const parsed = JSON.parse(request.bodyContent);
+        const formatted = JSON.stringify(parsed, null, 2);
+        updateField('bodyContent', formatted);
+    } catch (e) {
+        // In a real app we might show a toast here
+        console.error("Invalid JSON content");
     }
   };
 
@@ -296,6 +308,16 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onChange, o
                 {/* JSON / Text Editor */}
                 {(request.bodyType === 'json' || request.bodyType === 'text') && (
                     <div className="flex-1 relative flex flex-col gap-2">
+                         {request.bodyType === 'json' && (
+                             <button
+                                onClick={formatJSON}
+                                className="absolute top-3 right-3 z-10 p-1.5 bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-indigo-400 rounded backdrop-blur-sm border border-zinc-700 transition-all text-xs font-medium flex items-center gap-1.5"
+                                title="Format JSON"
+                             >
+                                <Braces size={14} />
+                                <span>Beautify</span>
+                             </button>
+                        )}
                         <textarea
                             value={request.bodyContent}
                             onChange={(e) => updateField('bodyContent', e.target.value)}
