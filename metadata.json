@@ -1,0 +1,5 @@
+{
+  "name": "PostmanLite",
+  "description": "A modern, high-performance API testing client featuring history management, advanced fetch configuration (CORS/Credentials), and a clean UI.",
+  "requestFramePermissions": []
+}
