@@ -6,6 +6,8 @@ import { SettingsModal } from './components/SettingsModal';
 import { RequestState, ResponseState, HistoryItem, AppSettings } from './types';
 import { INITIAL_REQUEST } from './constants';
 import { Menu, Zap, Settings } from 'lucide-react';
+// @ts-ignore
+import CryptoJS from 'crypto-js';
 
 const DEFAULT_SETTINGS: AppSettings = {
     fetchMode: 'cors',
@@ -27,26 +29,6 @@ function getCookie(name: string): string {
       console.warn('Cannot read cookies', e);
   }
   return '';
-}
-
-async function hmacSha256(key: string, message: string): Promise<string> {
-  const enc = new TextEncoder();
-  const keyData = await crypto.subtle.importKey(
-    "raw",
-    enc.encode(key),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const signature = await crypto.subtle.sign(
-    "HMAC",
-    keyData,
-    enc.encode(message)
-  );
-  // Convert buffer to hex string
-  return Array.from(new Uint8Array(signature))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
 }
 
 const App: React.FC = () => {
@@ -183,7 +165,9 @@ const App: React.FC = () => {
             
             // Plain text for signing: x-appid + x-nonce + x-request-ts + x-auth-value
             const signStr = appId + nonce + timestamp + authValue;
-            const sign = await hmacSha256(settings.cloudDocsSecureKey, signStr);
+            
+            // Use CryptoJS for robust HMAC-SHA256 (Works in http/https)
+            const sign = CryptoJS.HmacSHA256(signStr, settings.cloudDocsSecureKey).toString();
 
             const authHeaders = {
                 'x-appid': appId,
