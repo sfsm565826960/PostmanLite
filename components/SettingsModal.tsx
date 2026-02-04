@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Globe, Lock, ShieldCheck, Plus, Trash2, List } from 'lucide-react';
+import { X, Globe, Lock, ShieldCheck, Plus, Trash2, List, Key } from 'lucide-react';
 import { AppSettings, KeyValue } from '../types';
 
 interface SettingsModalProps {
@@ -106,6 +106,54 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
                 </div>
             )}
           </div>
+
+           {/* Cloud Docs Mode */}
+           <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+                    <div className="flex items-center gap-2 text-indigo-400 font-medium">
+                        <Key size={18} />
+                        <span>Cloud Docs Mode</span>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                        <input 
+                            type="checkbox" 
+                            checked={settings.cloudDocsMode || false} 
+                            onChange={(e) => handleChange('cloudDocsMode', e.target.checked)}
+                            className="sr-only peer" 
+                        />
+                        <div className="w-9 h-5 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                    </label>
+                </div>
+                
+                <p className="text-xs text-zinc-500 leading-relaxed">
+                    Automatically inject authentication headers (x-appid, x-sign, etc.) for Cloud Docs API requests.
+                </p>
+
+                {settings.cloudDocsMode && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                        <div className="flex flex-col gap-2">
+                            <label className="text-sm font-medium text-zinc-300">App ID</label>
+                            <input
+                                type="text"
+                                value={settings.cloudDocsAppId || ''}
+                                onChange={(e) => handleChange('cloudDocsAppId', e.target.value)}
+                                placeholder="Enter App ID"
+                                className="bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-200 focus:border-indigo-500 outline-none"
+                            />
+                        </div>
+                        <div className="flex flex-col gap-2">
+                            <label className="text-sm font-medium text-zinc-300">Secure Key</label>
+                            <input
+                                type="password"
+                                value={settings.cloudDocsSecureKey || ''}
+                                onChange={(e) => handleChange('cloudDocsSecureKey', e.target.value)}
+                                placeholder="Enter Secure Key"
+                                className="bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-200 focus:border-indigo-500 outline-none font-mono"
+                            />
+                        </div>
+                    </div>
+                )}
+           </div>
 
           {/* Global Headers */}
           <div className="flex flex-col gap-4">

@@ -25,6 +25,9 @@ export interface RequestState {
   file: File | null; // For Binary File (single file)
   bodyFormData: FormDataItem[]; // For multipart/form-data
   bodyFormUrlEncoded: KeyValue[]; // For application/x-www-form-urlencoded
+  
+  // Options
+  stream: boolean; // Enable streaming mode
 }
 
 export interface ResponseState {
@@ -41,10 +44,16 @@ export interface ResponseState {
 
 export interface HistoryItem extends RequestState {
   timestamp: number;
+  pinned?: boolean;
 }
 
 export interface AppSettings {
   fetchMode: 'cors' | 'no-cors' | 'same-origin';
   fetchCredentials: 'omit' | 'same-origin' | 'include';
   globalHeaders: KeyValue[];
+
+  // Cloud Docs Mode
+  cloudDocsMode?: boolean;
+  cloudDocsAppId?: string;
+  cloudDocsSecureKey?: string;
 }

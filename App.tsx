@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { RequestPanel } from './components/RequestPanel';
 import { ResponsePanel } from './components/ResponsePanel';
@@ -10,8 +10,44 @@ import { Menu, Zap, Settings } from 'lucide-react';
 const DEFAULT_SETTINGS: AppSettings = {
     fetchMode: 'cors',
     fetchCredentials: 'omit',
-    globalHeaders: [{ id: '1', key: '', value: '', enabled: true }]
+    globalHeaders: [{ id: '1', key: '', value: '', enabled: true }],
+    cloudDocsMode: false,
+    cloudDocsAppId: '',
+    cloudDocsSecureKey: ''
 };
+
+// --- Helpers ---
+
+function getCookie(name: string): string {
+  try {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop()?.split(';').shift() || '';
+  } catch (e) {
+      console.warn('Cannot read cookies', e);
+  }
+  return '';
+}
+
+async function hmacSha256(key: string, message: string): Promise<string> {
+  const enc = new TextEncoder();
+  const keyData = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(key),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    keyData,
+    enc.encode(message)
+  );
+  // Convert buffer to hex string
+  return Array.from(new Uint8Array(signature))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 const App: React.FC = () => {
   const [request, setRequest] = useState<RequestState>(INITIAL_REQUEST);
@@ -21,6 +57,9 @@ const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [injectedHeaders, setInjectedHeaders] = useState<Record<string, string> | null>(null);
+
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     // Load history
@@ -64,7 +103,8 @@ const App: React.FC = () => {
         // Deep clone form data but remove file objects
         bodyFormData: req.bodyFormData.map(item => ({...item, file: undefined})),
         id: Date.now().toString(), 
-        timestamp: Date.now() 
+        timestamp: Date.now(),
+        pinned: false
     };
     const newHistory = [newItem, ...history].slice(0, 50); // Keep last 50
     setHistory(newHistory);
@@ -76,9 +116,23 @@ const App: React.FC = () => {
     localStorage.removeItem('postman_lite_history');
   };
 
+  const handleTogglePinHistory = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newHistory = history.map(item => item.id === id ? { ...item, pinned: !item.pinned } : item);
+    setHistory(newHistory);
+    localStorage.setItem('postman_lite_history', JSON.stringify(newHistory));
+  };
+
+  const handleDeleteHistory = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newHistory = history.filter(item => item.id !== id);
+    setHistory(newHistory);
+    localStorage.setItem('postman_lite_history', JSON.stringify(newHistory));
+  };
+
   const handleSelectHistory = (item: HistoryItem) => {
     // Restore the request state
-    const { timestamp, ...reqState } = item;
+    const { timestamp, pinned, ...reqState } = item;
     // Ensure arrays exist (migration safety)
     setRequest({ 
         ...reqState, 
@@ -88,9 +142,26 @@ const App: React.FC = () => {
     }); 
   };
 
+  const handleStop = () => {
+    if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        setLoading(false);
+    }
+  };
+
   const handleSend = async () => {
+    // Stop any previous request
+    if (loading && abortControllerRef.current) {
+        abortControllerRef.current.abort();
+    }
+
     setLoading(true);
     setResponse(null);
+    
+    // Create new controller
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     const startTime = Date.now();
 
     // Prepare headers (Request Headers + Global Headers)
@@ -101,7 +172,39 @@ const App: React.FC = () => {
         if (h.enabled && h.key) headers[h.key] = h.value;
     });
 
-    // Add Request Headers
+    // --- Cloud Docs Mode Logic ---
+    if (settings.cloudDocsMode && settings.cloudDocsAppId && settings.cloudDocsSecureKey) {
+        try {
+            const timestamp = Date.now().toString();
+            const nonce = timestamp.slice(-6); // Last 6 digits
+            const appId = settings.cloudDocsAppId;
+            const authType = '1';
+            const authValue = getCookie('CAS_SSO_COOKIE');
+            
+            // Plain text for signing: x-appid + x-nonce + x-request-ts + x-auth-value
+            const signStr = appId + nonce + timestamp + authValue;
+            const sign = await hmacSha256(settings.cloudDocsSecureKey, signStr);
+
+            const authHeaders = {
+                'x-appid': appId,
+                'x-request-ts': timestamp,
+                'x-nonce': nonce,
+                'x-auth-type': authType,
+                'x-auth-value': authValue,
+                'x-sign': sign
+            };
+
+            setInjectedHeaders(authHeaders);
+            Object.assign(headers, authHeaders);
+
+            console.log('[Cloud Docs Mode] Injected Headers:', authHeaders);
+        } catch (e) {
+            console.error('[Cloud Docs Mode] Failed to generate signature', e);
+        }
+    }
+
+    // Add Request Headers (Request headers override global/cloud headers if specific conflicts exist, 
+    // though usually these x- headers are unique)
     request.headers.forEach(h => {
         if (h.enabled && h.key) headers[h.key] = h.value;
     });
@@ -119,21 +222,7 @@ const App: React.FC = () => {
 
     if (hasBody) {
         if (request.bodyType === 'file' && request.file) {
-            // Binary File
-            const formData = new FormData();
-            // Typically binary upload is just the body, not wrapped in FormData, 
-            // but previous implementation wrapped it. Standard raw binary is just `body = request.file`.
-            // User requirement "File upload" usually means raw binary body or form-data.
-            // Existing implementation was wrapping in FormData with key 'file'.
-            // To be more precise "Binary File" mode usually sends raw bytes.
-            // But let's stick to the previous behavior if it was "File upload" form style, 
-            // OR change to raw binary. Given we now have explicit "Form Data", 
-            // 'file' type usually implies Raw Binary. 
-            // However, to avoid breaking existing users who expect "file" key, let's keep it wrapper 
-            // OR assume the user wants form-data.
-            // Let's treat 'file' as Raw Binary Stream for this update to differentiate from Form Data.
             body = request.file; 
-            // Note: If you want to force a Content-Type for the file, user should set it or browser guesses.
         } 
         else if (request.bodyType === 'form-data') {
             const formData = new FormData();
@@ -147,7 +236,6 @@ const App: React.FC = () => {
                 }
             });
             body = formData;
-            // Remove Content-Type so browser sets boundary
             delete headers['Content-Type'];
             delete headers['content-type'];
         }
@@ -159,37 +247,93 @@ const App: React.FC = () => {
                 }
             });
             body = params;
-            // Browser sets content-type usually, but explicit header in UI is also fine.
         }
         else {
-            // JSON or Text
             body = request.bodyContent;
         }
     }
 
     try {
-        const res = await fetch(finalUrl, {
+        const fetchOptions: RequestInit = {
             method: request.method,
             headers,
             body,
             mode: settings.fetchMode,
-            credentials: settings.fetchCredentials
-        });
+            credentials: settings.fetchCredentials,
+            signal: controller.signal,
+        };
 
-        const endTime = Date.now();
-        const time = endTime - startTime;
-        
-        let data: any = null;
-        let size = '0 KB';
-        let contentType = res.headers.get('content-type') || '';
+        // Enable full-duplex streaming if body is present and it's a streamable type
+        if (hasBody && (request.stream || request.bodyType === 'file')) {
+             // @ts-ignore - TS might not know about duplex yet
+             fetchOptions.duplex = 'half'; 
+        }
 
+        const res = await fetch(finalUrl, fetchOptions);
+
+        // Initial headers parse
+        const resHeaders: Record<string, string> = {};
+        res.headers.forEach((val, key) => resHeaders[key] = val);
+        const contentType = res.headers.get('content-type') || '';
+
+        // Handle Opaque Response
         if (res.type === 'opaque') {
-             data = "Opaque response received (no-cors mode). No data available.";
-             contentType = "opaque/unknown";
+             setResponse({
+                status: 0,
+                statusText: 'Opaque',
+                headers: {},
+                data: "Opaque response received (no-cors mode). No data available.",
+                size: '0 KB',
+                time: Date.now() - startTime,
+                contentType: 'opaque/unknown',
+                isError: false
+             });
+             setLoading(false);
+             addToHistory(request);
+             return;
+        }
+
+        if (request.stream && res.body) {
+            // --- STREAMING MODE ---
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let receivedText = '';
+            
+            // Set initial state without data
+            setResponse({
+                status: res.status,
+                statusText: res.statusText || (res.ok ? 'OK' : 'Error'),
+                headers: resHeaders,
+                data: '',
+                size: '0 KB',
+                time: Date.now() - startTime,
+                contentType,
+                isError: !res.ok
+            });
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                const chunk = decoder.decode(value, { stream: true });
+                receivedText += chunk;
+                
+                // Update state with new chunk
+                setResponse(prev => {
+                    if (!prev) return null;
+                    return {
+                        ...prev,
+                        data: receivedText,
+                        size: (new TextEncoder().encode(receivedText).length / 1024).toFixed(2) + ' KB',
+                        time: Date.now() - startTime
+                    };
+                });
+            }
         } else {
+            // --- BUFFERED MODE (Default) ---
             const text = await res.text();
-            size = (new TextEncoder().encode(text).length / 1024).toFixed(2) + ' KB';
-            data = text;
+            const size = (new TextEncoder().encode(text).length / 1024).toFixed(2) + ' KB';
+            let data = text;
             
             if (contentType.includes('application/json')) {
                 try {
@@ -198,37 +342,39 @@ const App: React.FC = () => {
                     // Keep as text
                 }
             }
+
+            setResponse({
+                status: res.status,
+                statusText: res.statusText || (res.ok ? 'OK' : 'Error'),
+                headers: resHeaders,
+                data,
+                size,
+                time: Date.now() - startTime,
+                contentType,
+                isError: !res.ok
+            });
         }
-
-        const resHeaders: Record<string, string> = {};
-        res.headers.forEach((val, key) => resHeaders[key] = val);
-
-        setResponse({
-            status: res.status,
-            statusText: res.statusText || (res.ok ? 'OK' : 'Error'),
-            headers: resHeaders,
-            data,
-            size,
-            time,
-            contentType,
-            isError: !res.ok
-        });
 
         addToHistory(request);
 
     } catch (error: any) {
-        setResponse({
-            status: 0,
-            statusText: 'Error',
-            headers: {},
-            data: error.message + '\n\nRequest Failed. Possible reasons:\n1. CORS policy.\n2. Network unreachable.\n3. Invalid URL.',
-            size: '0 KB',
-            time: Date.now() - startTime,
-            contentType: 'text/plain',
-            isError: true
-        });
+        if (error.name === 'AbortError') {
+             // User aborted, do nothing or show aborted state
+        } else {
+            setResponse({
+                status: 0,
+                statusText: 'Error',
+                headers: {},
+                data: error.message + '\n\nRequest Failed or Aborted.',
+                size: '0 KB',
+                time: Date.now() - startTime,
+                contentType: 'text/plain',
+                isError: true
+            });
+        }
     } finally {
         setLoading(false);
+        abortControllerRef.current = null;
     }
   };
 
@@ -238,6 +384,8 @@ const App: React.FC = () => {
         history={history} 
         onSelect={handleSelectHistory} 
         onClear={clearHistory}
+        onTogglePin={handleTogglePinHistory}
+        onDelete={handleDeleteHistory}
         isOpen={sidebarOpen}
       />
       
@@ -281,8 +429,10 @@ const App: React.FC = () => {
                     request={request} 
                     onChange={setRequest} 
                     onSend={handleSend}
+                    onStop={handleStop}
                     loading={loading}
-                    globalHeaders={settings.globalHeaders}
+                    settings={settings}
+                    injectedHeaders={injectedHeaders}
                 />
              </div>
 

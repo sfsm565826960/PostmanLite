@@ -3,6 +3,7 @@ export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'O
 export const INITIAL_HEADERS = [
   { id: '1', key: 'Content-Type', value: 'application/json', enabled: true },
   { id: '2', key: 'Accept', value: '*/*', enabled: true },
+  { id: '3', key: '', value: '', enabled: true }, // Empty row for adding new headers
 ];
 
 export const INITIAL_REQUEST = {
@@ -16,4 +17,5 @@ export const INITIAL_REQUEST = {
   file: null,
   bodyFormData: [{ id: '1', key: '', value: '', type: 'text' as const, enabled: true }],
   bodyFormUrlEncoded: [{ id: '1', key: '', value: '', enabled: true }],
+  stream: false,
 };
