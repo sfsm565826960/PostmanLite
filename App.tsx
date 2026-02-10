@@ -160,7 +160,7 @@ const App: React.FC = () => {
             const timestamp = Date.now().toString();
             const nonce = timestamp.slice(-6); // Last 6 digits
             const appId = settings.cloudDocsAppId;
-            const authType = '1';
+            const authType = '2';
             const authValue = getCookie('CAS_SSO_COOKIE');
             
             // Plain text for signing: x-appid + x-nonce + x-request-ts + x-auth-value

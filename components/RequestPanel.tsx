@@ -48,7 +48,7 @@ export const RequestPanel: React.FC<RequestPanelProps> = ({ request, onChange, o
         { key: 'x-appid', value: settings.cloudDocsAppId },
         { key: 'x-request-ts', value: '(Current Timestamp)' },
         { key: 'x-nonce', value: '(Auto-generated)' },
-        { key: 'x-auth-type', value: '1' },
+        { key: 'x-auth-type', value: '2' },
         { key: 'x-auth-value', value: getCookieDisplay('CAS_SSO_COOKIE') || '(Missing Cookie)' },
         { key: 'x-sign', value: '(HMAC-SHA256 Signature)' },
     ];
